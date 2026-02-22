@@ -22,6 +22,10 @@ Thanks for your interest in the Stateful Workflow Protocol (SWP). This file cove
   - Python: `pip install swp-sdk[redis]`, start Redis (e.g. `redis-server`), then `pytest tests/python/test_redis_stream.py -v`. Override with `REDIS_URL`.  
   - TypeScript: Install Redis, then `npm test` in `sdks/typescript`; the Redis test is skipped if `ioredis` or Redis is unavailable. Set `REDIS_URL` to override (default `redis://localhost:6379`).
 
+- **Redis + Docker tests** (optional): Start the official Redis Docker image, run the stream integration against it, and confirm in Redis (PING, set/get key, publish to the run channel). Requires Docker and the `redis:7` image.  
+  - Python: `pytest tests/python/test_redis_stream.py::test_redis_stream_with_docker -v`. Uses port 6378.  
+  - TypeScript: `npm test` in `sdks/typescript`; the test "starts Redis container, runs stream integration, confirms in Redis" runs if Docker is available, otherwise skips.
+
 ---
 
 ## OpenAPI and spec sync

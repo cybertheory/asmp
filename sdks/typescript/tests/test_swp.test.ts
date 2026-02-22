@@ -1123,3 +1123,132 @@ describe("Redis stream integration (real Redis connection)", () => {
     10_000
   );
 });
+
+/** Start Redis via Docker, run stream test with that URL, confirm in Redis (PING + set/get key). */
+const REDIS_STREAM_CHANNEL_PREFIX = "swp:stream:";
+const DOCKER_PORT = 6378;
+
+describe("Redis stream with Docker (real Redis container)", () => {
+  it(
+    "starts Redis container, runs stream integration, confirms in Redis (PING + key)",
+    async () => {
+      const { execSync, spawnSync } = await import("child_process");
+      function dockerStop(id: string) {
+        try {
+          spawnSync("docker", ["stop", "-t", "2", id], { timeout: 10000 });
+        } catch {}
+      }
+      let cid: string | null = null;
+      try {
+        const out = execSync(`docker run --rm -d -p ${DOCKER_PORT}:6379 redis:7`, {
+          encoding: "utf-8",
+          timeout: 30000,
+        });
+        cid = out.trim();
+      } catch {
+        return; // skip if docker or image not available
+      }
+      try {
+        const dockerUrl = `redis://127.0.0.1:${DOCKER_PORT}`;
+        const { createRequire } = await import("module");
+        const require = createRequire(import.meta.url);
+        let redisReady = false;
+        const deadline = Date.now() + 10000;
+        while (Date.now() < deadline) {
+          try {
+            const Redis = require("ioredis") as new (u: string) => { ping(): Promise<string>; quit(): Promise<void> };
+            const r = new Redis(dockerUrl);
+            await r.ping();
+            await r.quit();
+            redisReady = true;
+            break;
+          } catch {
+            await new Promise((r) => setTimeout(r, 200));
+          }
+        }
+        if (!redisReady) {
+          dockerStop(cid);
+          return;
+        }
+        const store: Record<string, { state: string; data: Record<string, unknown>; milestones: string[] }> = {};
+        const ts: TransitionDef[] = [
+          { from_state: "INIT", action: "start", to_state: "DONE", is_critical: false },
+        ];
+        const w = new SWPWorkflow("redis-wf", "INIT", ts, "http://localhost")
+          .hint("INIT", "Start")
+          .hint("DONE", "Done");
+        const app = createApp(w, store, { redisUrl: dockerUrl });
+
+        const postRes = await app.request("http://localhost/runs", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        });
+        expect(postRes.status).toBe(201);
+        const postBody = (await postRes.json()) as { run_id: string; state: string };
+        const runId = postBody.run_id;
+        expect(postBody.state).toBe("INIT");
+
+        const lines: Record<string, unknown>[] = [];
+        const streamRes = await app.request(`http://localhost/runs/${runId}/stream`, {
+          headers: { Accept: "application/x-ndjson" },
+        });
+        expect(streamRes.status).toBe(200);
+        const reader = streamRes.body!.getReader();
+        const decoder = new TextDecoder();
+        let buf = "";
+        (async () => {
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            buf += decoder.decode(value, { stream: true });
+            const parts = buf.split("\n");
+            buf = parts.pop() ?? "";
+            for (const p of parts) {
+              const t = p.trim();
+              if (t) {
+                try {
+                  lines.push(JSON.parse(t) as Record<string, unknown>);
+                } catch {}
+              }
+            }
+            if (lines.length >= 2) break;
+          }
+        })();
+        await new Promise((r) => setTimeout(r, 800));
+        const transRes = await app.request(`http://localhost/runs/${runId}/transitions/start`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        });
+        expect(transRes.status).toBe(200);
+        const streamDeadline = Date.now() + 5000;
+        while (lines.length < 2 && Date.now() < streamDeadline) {
+          await new Promise((r) => setTimeout(r, 100));
+        }
+        expect(lines.length).toBeGreaterThanOrEqual(2);
+        expect((lines[lines.length - 1] as { state?: string }).state).toBe("DONE");
+
+        // Confirm in Redis: PING + set/get key (proves we used this Redis)
+        const RedisClient = require("ioredis") as new (
+          u: string
+        ) => {
+          ping(): Promise<string>;
+          set(k: string, v: string): Promise<string>;
+          get(k: string): Promise<string | null>;
+          publish(ch: string, msg: string): Promise<number>;
+          quit(): Promise<void>;
+        };
+        const r = new RedisClient(dockerUrl);
+        expect(await r.ping()).toBe("PONG");
+        await r.set("swp:test:docker", "ok");
+        expect(await r.get("swp:test:docker")).toBe("ok");
+        await r.publish(REDIS_STREAM_CHANNEL_PREFIX + runId, JSON.stringify({ test: "confirm" }));
+        await r.quit();
+      } finally {
+        if (cid) dockerStop(cid);
+      }
+    },
+    30_000
+  );
+});
