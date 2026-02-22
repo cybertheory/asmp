@@ -1,0 +1,19 @@
+# SWP Repository Rules
+
+## Token efficiency
+- Always minimize JSON keys in State Frames when adding new fields (prefer short names where the spec allows).
+- Do not add optional fields that duplicate information already present in the frame.
+- Preserve progressive disclosure: only expose next_states and active_skill relevant to the current state.
+
+## Protocol consistency
+- Any new endpoint or field must align with spec/PROTOCOL.md and spec/STATE_FRAME.json.
+- Transitions must be validated server-side; return 403 with a hint when an action is not in next_states.
+- Use NDJSON for stream_url responses; do not switch to a different streaming format without updating the spec.
+
+## SDK parity
+- Python and TypeScript SDKs should stay feature-parity for core operations: start run, get frame, transition, stream, visualize.
+- Keep dependencies minimal (FastAPI/httpx for Python, Hono/fetch for TypeScript).
+
+## Tests
+- New server or client behavior must have a corresponding unit or integration test in tests/python or sdks/typescript/tests.
+- Do not remove tests that verify guard enforcement (invalid transition, missing expects).

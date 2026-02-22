@@ -1,0 +1,96 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://swp.dev/schemas/STATE_FRAME.json",
+  "title": "SWP State Frame",
+  "description": "Single source of truth for an agent's current position in a workflow. Every SWP server response MUST conform to this schema.",
+  "type": "object",
+  "required": ["run_id", "workflow_id", "state", "status", "hint", "next_states"],
+  "properties": {
+    "run_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique identifier for this execution instance. Used for resumption and stream attachment."
+    },
+    "workflow_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*[a-z0-9]$",
+      "description": "Blueprint ID of the workflow (e.g. invoice-processing-v1, document-approval-v1)."
+    },
+    "resource_url": {
+      "type": "string",
+      "format": "uri",
+      "description": "Base URL of the SWP server for this run. Used for relative href resolution."
+    },
+    "state": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9_]*$",
+      "description": "Current node in the FSM (e.g. AWAITING_AUDIT, PENDING_REVIEW)."
+    },
+    "status": {
+      "type": "string",
+      "enum": ["active", "processing", "awaiting_input", "completed", "failed"],
+      "description": "Operational status: active (ready), processing (async work), awaiting_input (needs agent), completed, failed."
+    },
+    "hint": {
+      "type": "string",
+      "description": "Natural language 'system prompt' bridge for the LLM. Explains exactly what to do in this state and any guards."
+    },
+    "active_skill": {
+      "type": "object",
+      "description": "Optional. When present, the agent should fetch SKILL.md from url and inject into context.",
+      "properties": {
+        "name": { "type": "string", "description": "Skill slug (e.g. audit-skill)." },
+        "url": { "type": "string", "format": "uri", "description": "Link to SKILL.md or skill manifest." },
+        "context_summary": { "type": "string", "description": "Brief recap of previous steps to prevent context gaps." },
+        "version": { "type": "string", "description": "Optional skill version." }
+      },
+      "required": ["name", "url"]
+    },
+    "next_states": {
+      "type": "array",
+      "description": "Valid transitions from current state. Agent may only POST to one of these.",
+      "items": {
+        "type": "object",
+        "required": ["action", "method", "href"],
+        "properties": {
+          "action": { "type": "string", "description": "Transition name (e.g. submit_audit, reject)." },
+          "method": { "type": "string", "enum": ["POST"], "description": "HTTP method." },
+          "href": { "type": "string", "format": "uri-reference", "description": "URL to trigger this transition." },
+          "expects": {
+            "type": "object",
+            "additionalProperties": { "type": "string" },
+            "description": "Minimal JSON schema of required body (e.g. { \"reason\": \"string\" })."
+          },
+          "is_critical": { "type": "boolean", "default": false, "description": "Whether this transition is critical (e.g. must not skip)." }
+        }
+      }
+    },
+    "data": {
+      "type": "object",
+      "additionalProperties": true,
+      "description": "Context payload: local variables, tool results, file links relevant to current step."
+    },
+    "milestones": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Completed high-level objectives for proactive context (e.g. Identity Verified, Document Parsed)."
+    },
+    "stream_url": {
+      "type": "string",
+      "format": "uri",
+      "description": "Endpoint for Streamable HTTP (NDJSON). GET with Accept: application/x-ndjson to receive state updates."
+    },
+    "_links": {
+      "type": "object",
+      "description": "HATEOAS links (e.g. all_options for full transition list).",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "href": { "type": "string" },
+          "method": { "type": "string" }
+        }
+      }
+    }
+  },
+  "additionalProperties": false
+}

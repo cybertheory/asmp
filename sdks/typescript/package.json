@@ -1,0 +1,23 @@
+{
+  "name": "swp-sdk",
+  "version": "0.1.0",
+  "description": "Stateful Workflow Protocol - TypeScript SDK (Hono server, fetch client, LLM wrapper, visualizer)",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "dev": "tsx watch src/examples/ci-cd-server.ts"
+  },
+  "dependencies": {
+    "hono": "^4.0.0",
+    "zod": "^3.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^1.0.0"
+  }
+}
